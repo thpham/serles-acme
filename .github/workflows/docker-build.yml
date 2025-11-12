@@ -1,9 +1,14 @@
 name: Docker Build and Push
 
 #
-# Multi-architecture Docker image build and push to GitHub Container Registry
-# Triggers: Push to master, Git tags, Manual dispatch
-# Platforms: linux/amd64, linux/arm64
+# Native multi-architecture Docker image build and push to GitHub Container Registry
+# Uses native runners (amd64, arm64) instead of QEMU emulation for faster builds
+#
+# Triggers: Push to master, Git release tags (v*), Manual dispatch
+# Image Tags:
+#   - Master commits: v{version}-{short_sha}, latest
+#   - Release tags: v{version}, latest
+#   - Manual: v{version}-{short_sha}-{suffix}
 #
 
 on:
@@ -11,12 +16,11 @@ on:
     branches:
       - master
     tags:
-      - 'v*'
-      - 'version-*'
+      - "v*"
   workflow_dispatch:
     inputs:
       tag_suffix:
-        description: 'Optional tag suffix (e.g., "test")'
+        description: 'Optional tag suffix (e.g., "test", "rc1")'
         required: false
         type: string
 
@@ -26,40 +30,58 @@ env:
 
 jobs:
   # ==========================================================================
-  # Build and Push Docker Image
+  # Extract Version from setup.py
   # ==========================================================================
-  build-and-push:
+  extract-version:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.get_version.outputs.version }}
+      short_sha: ${{ steps.get_version.outputs.short_sha }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract version from setup.py
+        id: get_version
+        run: |
+          # Extract version from setup.py (BSD/GNU compatible)
+          VERSION=$(grep 'version=' setup.py | sed -E 's/.*version="([^"]+)".*/\1/')
+          SHORT_SHA=$(git rev-parse --short HEAD)
+
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
+
+          echo "📦 App Version: ${VERSION}"
+          echo "🔖 Git SHA: ${SHORT_SHA}"
+
+  # ==========================================================================
+  # Build Docker Images for Each Architecture (Native Runners)
+  # ==========================================================================
+  build-arch-matrix:
+    needs: extract-version
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       packages: write
 
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            platform: linux/amd64
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            arch: arm64
+
     steps:
-      # ------------------------------------------------------------------------
-      # Checkout code
-      # ------------------------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # Full history for git describe
-
-      # ------------------------------------------------------------------------
-      # Set up build environment
-      # ------------------------------------------------------------------------
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: linux/amd64,linux/arm64
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-        with:
-          driver-opts: |
-            image=moby/buildkit:latest
 
-      # ------------------------------------------------------------------------
-      # Login to GitHub Container Registry
-      # ------------------------------------------------------------------------
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -67,178 +89,174 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # ------------------------------------------------------------------------
-      # Generate image tags
-      # ------------------------------------------------------------------------
-      - name: Generate image tags
-        id: meta
-        run: |
-          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
-          TAGS=""
-
-          # Extract git info
-          GIT_SHA=$(git rev-parse --short HEAD)
-          GIT_TAG="${GITHUB_REF#refs/tags/}"
-
-          echo "Git SHA: $GIT_SHA"
-          echo "Git Ref: $GITHUB_REF"
-
-          # Determine tags based on trigger
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            # Release tag (e.g., v1.2.0)
-            VERSION="${GIT_TAG#v}"
-            TAGS="${IMAGE}:${VERSION},${IMAGE}:latest"
-            echo "Detected release tag: $VERSION"
-
-          elif [[ "$GITHUB_REF" == refs/tags/version-* ]]; then
-            # Version tag (e.g., version-abc123)
-            TAGS="${IMAGE}:${GIT_TAG}"
-            echo "Detected version tag: $GIT_TAG"
-
-          elif [[ "$GITHUB_REF" == refs/heads/master ]]; then
-            # Push to master - create version-{short_sha} tag
-            VERSION_TAG="version-${GIT_SHA}"
-            TAGS="${IMAGE}:${VERSION_TAG}"
-            echo "Master branch push: $VERSION_TAG"
-
-          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            # Manual dispatch
-            if [[ -n "${{ inputs.tag_suffix }}" ]]; then
-              TAGS="${IMAGE}:${{ inputs.tag_suffix }}-${GIT_SHA}"
-            else
-              TAGS="${IMAGE}:manual-${GIT_SHA}"
-            fi
-            echo "Manual dispatch: ${TAGS}"
-
-          else
-            # Fallback
-            TAGS="${IMAGE}:${GIT_SHA}"
-            echo "Fallback: ${GIT_SHA}"
-          fi
-
-          # Output tags
-          echo "tags=${TAGS}" >> $GITHUB_OUTPUT
-          echo "version_tag=version-${GIT_SHA}" >> $GITHUB_OUTPUT
-          echo "Generated tags: $TAGS"
-
-      # ------------------------------------------------------------------------
-      # Extract metadata
-      # ------------------------------------------------------------------------
-      - name: Extract metadata
-        id: docker_meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          labels: |
-            org.opencontainers.image.title=Serles ACME Server
-            org.opencontainers.image.description=ACME Server with EJBCA CE PKI integration
-            org.opencontainers.image.vendor=thpham
-
-      # ------------------------------------------------------------------------
-      # Build and push image
-      # ------------------------------------------------------------------------
-      - name: Build and push Docker image
+      - name: Build and push by digest
+        id: build
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./Dockerfile
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ matrix.platform }}
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.docker_meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
           build-args: |
             BUILDKIT_INLINE_CACHE=1
 
-      # ------------------------------------------------------------------------
-      # Create git tag for version-{sha} on master push
-      # ------------------------------------------------------------------------
-      - name: Create version tag
-        if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+      - name: Export digest
         run: |
-          VERSION_TAG="${{ steps.meta.outputs.version_tag }}"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "$VERSION_TAG" -m "Automated version tag for commit ${GITHUB_SHA::7}"
-          git push origin "$VERSION_TAG"
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+          echo "🏗️  Built ${{ matrix.platform }}: ${digest}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
 
   # ==========================================================================
-  # Cleanup Old Tags
+  # Create Multi-Architecture Manifest and Apply Tags
   # ==========================================================================
-  cleanup-tags:
+  create-manifest:
+    needs: [extract-version, build-arch-matrix]
     runs-on: ubuntu-latest
-    needs: build-and-push
-    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
     permissions:
-      packages: write
       contents: read
+      packages: write
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
 
-      - name: Delete old version tags
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate image tags
+        id: tags
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.extract-version.outputs.version }}
+          SHORT_SHA: ${{ needs.extract-version.outputs.short_sha }}
         run: |
-          # Get all version-* tags from GHCR
-          PACKAGE_URL="https://api.github.com/users/thpham/packages/container/serles-acme/versions"
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+          TAGS=""
 
-          echo "Fetching package versions..."
-          VERSIONS=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" "$PACKAGE_URL")
+          echo "📋 Build Context:"
+          echo "  Version: ${VERSION}"
+          echo "  Short SHA: ${SHORT_SHA}"
+          echo "  Git Ref: ${GITHUB_REF}"
+          echo "  Event: ${GITHUB_EVENT_NAME}"
+          echo ""
 
-          # Extract version-* tags and their IDs
-          VERSION_TAGS=$(echo "$VERSIONS" | jq -r '.[] | select(.metadata.container.tags[] | startswith("version-")) | {id: .id, tags: .metadata.container.tags} | @json')
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            # Release tag build: v{version}, latest
+            GIT_TAG="${GITHUB_REF#refs/tags/}"
+            RELEASE_VERSION="${GIT_TAG#v}"
 
-          if [[ -z "$VERSION_TAGS" ]]; then
-            echo "No version-* tags found"
-            exit 0
-          fi
+            # Validate version matches setup.py
+            if [[ "${RELEASE_VERSION}" != "${VERSION}" ]]; then
+              echo "❌ ERROR: Git tag version (${RELEASE_VERSION}) does not match setup.py version (${VERSION})"
+              exit 1
+            fi
 
-          # Count version tags
-          TAG_COUNT=$(echo "$VERSION_TAGS" | wc -l)
-          echo "Found $TAG_COUNT version-* tags"
+            TAGS="${IMAGE}:v${VERSION},${IMAGE}:latest"
+            echo "🏷️  Release Tag Build"
+            echo "  Tags: v${VERSION}, latest"
 
-          # Keep only the last 4, delete the rest
-          if [[ $TAG_COUNT -gt 4 ]]; then
-            TAGS_TO_DELETE=$(echo "$VERSION_TAGS" | head -n -4)
+          elif [[ "${GITHUB_REF}" == refs/heads/master ]]; then
+            # Master branch build: v{version}-{sha}, latest
+            TAGS="${IMAGE}:v${VERSION}-${SHORT_SHA},${IMAGE}:latest"
+            echo "🏷️  Master Branch Build"
+            echo "  Tags: v${VERSION}-${SHORT_SHA}, latest"
 
-            echo "Deleting old tags (keeping last 4)..."
-            echo "$TAGS_TO_DELETE" | while read -r VERSION_JSON; do
-              VERSION_ID=$(echo "$VERSION_JSON" | jq -r '.id')
-              VERSION_TAG=$(echo "$VERSION_JSON" | jq -r '.tags[0]')
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            # Manual dispatch build
+            if [[ -n "${{ inputs.tag_suffix }}" ]]; then
+              TAGS="${IMAGE}:v${VERSION}-${SHORT_SHA}-${{ inputs.tag_suffix }}"
+              echo "🏷️  Manual Dispatch Build (with suffix)"
+              echo "  Tag: v${VERSION}-${SHORT_SHA}-${{ inputs.tag_suffix }}"
+            else
+              TAGS="${IMAGE}:v${VERSION}-${SHORT_SHA}"
+              echo "🏷️  Manual Dispatch Build"
+              echo "  Tag: v${VERSION}-${SHORT_SHA}"
+            fi
 
-              echo "Deleting tag: $VERSION_TAG (ID: $VERSION_ID)"
-              curl -X DELETE \
-                -H "Authorization: Bearer $GITHUB_TOKEN" \
-                "https://api.github.com/users/thpham/packages/container/serles-acme/versions/$VERSION_ID" || echo "Failed to delete $VERSION_TAG"
-            done
-
-            echo "Cleanup complete!"
           else
-            echo "Less than 4 version-* tags exist, no cleanup needed"
+            # Fallback for other branches
+            TAGS="${IMAGE}:v${VERSION}-${SHORT_SHA}"
+            echo "🏷️  Branch Build"
+            echo "  Tag: v${VERSION}-${SHORT_SHA}"
           fi
 
-      # Clean up git tags locally (keep last 4)
-      - name: Clean up git version tags
+          echo ""
+          echo "tags=${TAGS}" >> $GITHUB_OUTPUT
+          echo "✅ Final Tags: ${TAGS}"
+
+      - name: Create manifest list and push
+        working-directory: /tmp/digests
         run: |
-          echo "Cleaning up git tags..."
-          VERSION_TAGS=$(git tag -l "version-*" | sort -V)
-          TAG_COUNT=$(echo "$VERSION_TAGS" | wc -l)
+          TAGS="${{ steps.tags.outputs.tags }}"
 
-          echo "Found $TAG_COUNT git version-* tags"
+          # Convert comma-separated tags to -t flag format
+          TAG_FLAGS=""
+          IFS=',' read -ra TAG_ARRAY <<< "$TAGS"
+          for tag in "${TAG_ARRAY[@]}"; do
+            TAG_FLAGS="${TAG_FLAGS} -t ${tag}"
+          done
 
-          if [[ $TAG_COUNT -gt 4 ]]; then
-            TAGS_TO_DELETE=$(echo "$VERSION_TAGS" | head -n -4)
+          echo "🔨 Creating multi-arch manifest with tags:"
+          for tag in "${TAG_ARRAY[@]}"; do
+            echo "  - ${tag}"
+          done
+          echo ""
 
-            echo "Deleting old git tags (keeping last 4)..."
-            echo "$TAGS_TO_DELETE" | while read -r TAG; do
-              echo "Deleting git tag: $TAG"
-              git push --delete origin "$TAG" || echo "Failed to delete $TAG"
-            done
+          # Create manifest from digests
+          docker buildx imagetools create ${TAG_FLAGS} \
+            $(printf '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@sha256:%s ' *)
 
-            echo "Git tag cleanup complete!"
-          else
-            echo "Less than 4 git version-* tags exist, no cleanup needed"
-          fi
+          echo ""
+          echo "✅ Multi-architecture manifest created successfully!"
+
+      - name: Inspect image
+        run: |
+          TAGS="${{ steps.tags.outputs.tags }}"
+          FIRST_TAG=$(echo "$TAGS" | cut -d',' -f1)
+
+          echo "🔍 Inspecting multi-arch image: ${FIRST_TAG}"
+          echo ""
+          docker buildx imagetools inspect "${FIRST_TAG}"
+
+      - name: Build summary
+        run: |
+          echo "## 🎉 Docker Build Complete!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** \`v${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** \`${{ needs.extract-version.outputs.short_sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Images Pushed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          TAGS="${{ steps.tags.outputs.tags }}"
+          IFS=',' read -ra TAG_ARRAY <<< "$TAGS"
+          for tag in "${TAG_ARRAY[@]}"; do
+            echo "- \`${tag}\`" >> $GITHUB_STEP_SUMMARY
+          done
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🏗️ Architectures" >> $GITHUB_STEP_SUMMARY
+          echo "- linux/amd64 (native ubuntu-latest)" >> $GITHUB_STEP_SUMMARY
+          echo "- linux/arm64 (native ubuntu-24.04-arm64)" >> $GITHUB_STEP_SUMMARY
