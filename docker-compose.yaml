@@ -1,0 +1,149 @@
+#
+# Serles ACME Server - Docker Compose Configuration
+# Full development stack with PostgreSQL and EJBCA CE PKI
+#
+
+services:
+  # ==========================================================================
+  # PostgreSQL Database
+  # ==========================================================================
+  postgresql:
+    image: postgres:17-alpine
+    container_name: serles-postgresql
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: serles
+      POSTGRES_USER: serles
+      POSTGRES_PASSWORD: serles_password
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --lc-collate=C --lc-ctype=C"
+    volumes:
+      - postgresql_data:/var/lib/postgresql/data
+    networks:
+      - serles-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U serles"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ==========================================================================
+  # EJBCA CE PKI (Development)
+  # ==========================================================================
+  ejbca:
+    image: keyfactor/ejbca-ce:latest
+    container_name: serles-ejbca
+    hostname: ejbca
+    platform: linux/amd64 # EJBCA CE only supports x86_64; runs via Rosetta 2 on Apple Silicon
+    restart: unless-stopped
+    environment:
+      TLS_SETUP_ENABLED: "simple"
+    ports:
+      - "9443:8443" # HTTPS Web UI and SOAP API
+      - "9980:8080" # HTTP (redirect to HTTPS)
+    volumes:
+      - ejbca_data:/mnt/persistent
+      - ./docker/ejbca-bootstrap.sh:/opt/ejbca-bootstrap.sh:ro
+    networks:
+      - serles-network
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -f -k https://localhost:8443/ejbca/publicweb/healthcheck/ejbcahealth || exit 1",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+  # ==========================================================================
+  # Serles ACME Server
+  # ==========================================================================
+  serles:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - BUILDKIT_INLINE_CACHE=1
+    image: ghcr.io/thpham/serles-acme:latest
+    container_name: serles-acme
+    restart: unless-stopped
+    ports:
+      - "8080:8080" # HTTP (default - for k8s with ingress TLS termination)
+      # - "8443:8443" # HTTPS (uncomment when TLS_ENABLED=true)
+    environment:
+      # Database configuration
+      DATABASE_URL: "postgresql://serles:serles_password@postgresql:5432/serles"
+
+      # EJBCA backend configuration
+      BACKEND: "serles.backends.ejbca:EjbcaBackend"
+      EJBCA_API_URL: "https://ejbca:8443/ejbca/ejbcaws/ejbcaws?wsdl"
+      EJBCA_CA_BUNDLE: "none" # Disable cert verification for self-signed EJBCA
+      EJBCA_CLIENT_CERT: "/etc/serles/certs/client01-privpub.pem"
+      EJBCA_CA_NAME: "ACMECA"
+      EJBCA_END_ENTITY_PROFILE: "ACMEEndEntityProfile"
+      EJBCA_CERT_PROFILE: "ACMEServerProfile"
+      EJBCA_ENTITY_USERNAME: "{CN}"
+      EJBCA_ENTITY_PASSWORD: "{random}"
+
+      # Serles configuration
+      SUBJECT_NAME_TEMPLATE: "CN={SAN[0]}"
+      FORCE_TEMPLATE_DN: "true"
+      ALLOW_WILDCARDS: "false"
+      VERIFY_PTR: "false"
+      ALLOWED_IP_RANGES: ""
+      EXCLUDED_IP_RANGES: ""
+
+      # TLS configuration (optional - for end-to-end encryption or local dev)
+      # Uncomment to enable HTTPS and update port mapping to 8443:8443
+      # TLS_ENABLED: "false"
+      # TLS_PORT: "8443"
+      # TLS_CERT_FILE: "/etc/serles/tls/server.crt"
+      # TLS_KEY_FILE: "/etc/serles/tls/server.key"
+
+      # Gunicorn configuration
+      GUNICORN_WORKERS: "2"
+      LOG_LEVEL: "info"
+    volumes:
+      # Mount certificates directory
+      # - Client cert for EJBCA SOAP API (generated via bootstrap)
+      # - TLS server cert for HTTPS (generated via generate-tls-cert.sh)
+      - ./docker/certs:/etc/serles/certs:ro
+      - ./docker/certs:/etc/serles/tls:ro  # Same dir, different mount point for TLS certs
+      # Persistent data
+      - serles_data:/var/lib/serles
+      # Optional: Override config file
+      # - ./config.ini:/etc/serles/config.ini:ro
+    networks:
+      - serles-network
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      ejbca:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+# ==========================================================================
+# Networks
+# ==========================================================================
+networks:
+  serles-network:
+    driver: bridge
+    name: serles-network
+
+# ==========================================================================
+# Volumes
+# ==========================================================================
+volumes:
+  postgresql_data:
+    name: serles-postgresql-data
+  ejbca_data:
+    name: serles-ejbca-data
+  serles_data:
+    name: serles-data

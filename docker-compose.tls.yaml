@@ -1,0 +1,21 @@
+#
+# Docker Compose override for TLS-enabled development
+# Use this to test ACME clients that expect HTTPS (like example clients)
+#
+# Usage:
+#   docker-compose -f docker-compose.yaml -f docker-compose.tls.yaml up -d
+#
+# Or set COMPOSE_FILE environment variable:
+#   export COMPOSE_FILE=docker-compose.yaml:docker-compose.tls.yaml
+#   docker-compose up -d
+#
+
+services:
+  serles:
+    ports:
+      - "8443:8443" # HTTPS with self-signed certificate
+    environment:
+      TLS_ENABLED: "true"
+      TLS_PORT: "8443"
+      TLS_CERT_FILE: "/etc/serles/tls/server.crt"
+      TLS_KEY_FILE: "/etc/serles/tls/server.key"

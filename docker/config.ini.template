@@ -1,0 +1,72 @@
+[serles]
+# Database configuration - supports environment variable substitution
+# For Docker Compose: postgresql://serles:password@postgresql:5432/serles
+# For SQLite: sqlite:////var/lib/serles/db.sqlite
+database = ${DATABASE_URL:-sqlite:////var/lib/serles/db.sqlite}
+
+# Backend module to load
+# For production with EJBCA: serles.backends.ejbca:EjbcaBackend
+# For development with OpenSSL: serles.backends.openssl:Backend
+backend = ${BACKEND:-serles.backends.openssl:Backend}
+
+# Allowed IP ranges in CIDR notation (newline-separated)
+# Set to empty or remove lines to allow all IPs
+allowedServerIpRanges = ${ALLOWED_IP_RANGES:-}
+
+# Excluded IP ranges in CIDR notation
+excludeServerIpRanges = ${EXCLUDED_IP_RANGES:-}
+
+# Verify PTR (reverse DNS) records
+verifyPTR = ${VERIFY_PTR:-false}
+
+# Allow wildcard certificates (*.example.com)
+allowWildcards = ${ALLOW_WILDCARDS:-false}
+
+# Subject Name Template for CSR
+# Variables: {SAN[0]}, {SAN[1]}, ..., {MAIL}
+subjectNameTemplate = ${SUBJECT_NAME_TEMPLATE:-CN={SAN[0]}}
+
+# Force DN from template (ignore DN from CSR)
+forceTemplateDN = ${FORCE_TEMPLATE_DN:-true}
+
+# EJBCA Backend Configuration
+[ejbca]
+# EJBCA SOAP API endpoint (must be HTTPS)
+# For Docker Compose: https://ejbca:8443/ejbca/ejbcaws/ejbcaws?wsdl
+apiUrl = ${EJBCA_API_URL:-https://localhost:9443/ejbca/ejbcaws/ejbcaws?wsdl}
+
+# CA bundle for verifying EJBCA certificate
+# Options: 'default' (certifi), 'none' (disable), or path to bundle
+caBundle = ${EJBCA_CA_BUNDLE:-none}
+
+# Client certificate for mutual TLS authentication
+# Must be PEM format with both private key and certificate
+clientCertificate = ${EJBCA_CLIENT_CERT:-/etc/serles/client01-privpub.pem}
+
+# EJBCA CA and Profile names
+caName = ${EJBCA_CA_NAME:-ACMECA}
+endEntityProfileName = ${EJBCA_END_ENTITY_PROFILE:-ACMEEndEntityProfile}
+certificateProfileName = ${EJBCA_CERT_PROFILE:-ACMEServerProfile}
+
+# End Entity username and password schemes
+# Variables: {random} (32 chars hex), {CN}, {OU}, {O}, {L}, {ST}, {C}
+entityUsernameScheme = ${EJBCA_ENTITY_USERNAME:-{CN}}
+entityPasswordScheme = ${EJBCA_ENTITY_PASSWORD:-{random}}
+
+# OpenSSL Backend Configuration (for testing only)
+[openssl]
+# Root certificate and private key paths
+# Auto-created if missing
+cacert = ${OPENSSL_CA_CERT:-/var/lib/serles/ca.crt}
+cakey = ${OPENSSL_CA_KEY:-/var/lib/serles/ca.key}
+
+# Certbot Backend Configuration
+[certbot]
+# Path to certbot executable
+path = ${CERTBOT_PATH:-/usr/bin/certbot}
+
+# Certbot configuration (inline)
+config = ${CERTBOT_CONFIG:-}
+
+# External certbot config file (alternative to inline config)
+config-file = ${CERTBOT_CONFIG_FILE:-}
