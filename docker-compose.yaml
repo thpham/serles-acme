@@ -94,7 +94,7 @@ services:
       EJBCA_ENTITY_PASSWORD: "{random}"
 
       # Serles configuration
-      SUBJECT_NAME_TEMPLATE: "CN={SAN[0]}"
+      SUBJECT_NAME_TEMPLATE: "CN={SAN0}"
       FORCE_TEMPLATE_DN: "true"
       ALLOW_WILDCARDS: "false"
       VERIFY_PTR: "false"

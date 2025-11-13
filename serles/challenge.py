@@ -287,14 +287,15 @@ def check_csr_and_return_cert(csr_der, order):
     subject_dn = csr.subject.rfc4514_string()
     if config["forceTemplateDN"] or not subject_dn:
         # Build format kwargs with indexed SAN values for template support
-        # Template can use {SAN}, {SAN[0]}, {SAN[1]}, etc.
+        # Template can use {SAN}, {SAN0}, {SAN1}, etc.
+        # Note: Cannot use {SAN[0]} syntax - Python format() interprets brackets as index access
         format_kwargs = {
             "MAIL": email,
             "SAN": alt_names[0] if alt_names else ""  # Default SAN for {SAN}
         }
-        # Add indexed SAN values
+        # Add indexed SAN values (SAN0, SAN1, SAN2, ...)
         for i, san in enumerate(alt_names):
-            format_kwargs[f"SAN[{i}]"] = san
+            format_kwargs[f"SAN{i}"] = san
         subject_dn = config["subjectNameTemplate"].format(**format_kwargs)
 
     certificate, error = backend.sign(csr_pem, subject_dn, alt_names, email)

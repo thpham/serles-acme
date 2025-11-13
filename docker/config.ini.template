@@ -23,9 +23,10 @@ verifyPTR = ${VERIFY_PTR:-false}
 allowWildcards = ${ALLOW_WILDCARDS:-false}
 
 # Subject Name Template for CSR
-# Variables: {SAN[0]}, {SAN[1]}, ..., {MAIL}
+# Variables: {SAN}, {SAN0}, {SAN1}, ..., {MAIL}
+# Note: Use {SAN0} not {SAN[0]} - Python format() interprets [0] as string indexing
 # Note: Braces in default value are escaped for shell substitution
-subjectNameTemplate = ${SUBJECT_NAME_TEMPLATE:-CN=\{SAN[0]\}}
+subjectNameTemplate = ${SUBJECT_NAME_TEMPLATE:-CN=\{SAN0\}}
 
 # Force DN from template (ignore DN from CSR)
 forceTemplateDN = ${FORCE_TEMPLATE_DN:-true}
