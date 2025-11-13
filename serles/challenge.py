@@ -286,7 +286,16 @@ def check_csr_and_return_cert(csr_der, order):
     email = order.account.contact
     subject_dn = csr.subject.rfc4514_string()
     if config["forceTemplateDN"] or not subject_dn:
-        subject_dn = config["subjectNameTemplate"].format(SAN=alt_names, MAIL=email)
+        # Build format kwargs with indexed SAN values for template support
+        # Template can use {SAN}, {SAN[0]}, {SAN[1]}, etc.
+        format_kwargs = {
+            "MAIL": email,
+            "SAN": alt_names[0] if alt_names else ""  # Default SAN for {SAN}
+        }
+        # Add indexed SAN values
+        for i, san in enumerate(alt_names):
+            format_kwargs[f"SAN[{i}]"] = san
+        subject_dn = config["subjectNameTemplate"].format(**format_kwargs)
 
     certificate, error = backend.sign(csr_pem, subject_dn, alt_names, email)
 

@@ -1,0 +1,47 @@
+# Caddyfile - Serles ACME Demo
+# Caddy automatically obtains TLS certificates from Serles ACME server
+
+{
+	# Disable admin API
+	admin off
+
+	# Email for ACME account
+	email admin@serles.local
+}
+
+# Main site with automatic HTTPS from Serles ACME
+{$DOMAIN} {
+	# Explicit TLS configuration with Serles ACME
+	tls {
+		issuer acme {
+			dir {$ACME_SERVER}
+			# Disable TLS-ALPN challenge (only use HTTP-01)
+			disable_tlsalpn_challenge
+		}
+	}
+
+	# Serve static files
+	root * /srv
+	file_server
+
+	# Enable gzip compression
+	encode gzip
+
+	# Security headers
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		X-XSS-Protection "1; mode=block"
+	}
+
+	# Health check endpoint
+	respond /health "OK" 200
+
+	# Logging
+	log {
+		output stdout
+		format console
+		level INFO
+	}
+}

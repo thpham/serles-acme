@@ -54,8 +54,6 @@ class EjbcaBackend:
         try:
             clientCertificate = config["ejbca"]["clientCertificate"]
             apiUrl = config["ejbca"]["apiUrl"]
-            caBundle = config["ejbca"]["caBundle"]
-            caBundle = dict(default=True, none=False).get(caBundle, caBundle)
             self.caName = config["ejbca"]["caName"]
             self.endEntityProfileName = config["ejbca"]["endEntityProfileName"]
             self.certificateProfileName = config["ejbca"]["certificateProfileName"]
@@ -65,8 +63,43 @@ class EjbcaBackend:
             raise Exception(f"missing config key {e}")
 
         session = requests.Session()
-        session.verify = caBundle
-        session.cert = clientCertificate
+
+        # Always send certificate via SSL_CLIENT_CERT header for reverse proxy compatibility
+        # This works in all scenarios:
+        # - Direct HTTP (PROXY_HTTP_BIND): Header is used for authentication
+        # - Direct HTTPS: Header is ignored, TLS cert is used instead
+        # - HTTPS via reverse proxy: Proxy overrides header with extracted TLS cert
+        #
+        # Note: HTTP headers cannot contain newlines, so we URL-encode the PEM certificate
+        import urllib.parse
+        with open(clientCertificate, 'r') as f:
+            clientCertificatePem = f.read().strip()
+        # URL-encode the certificate to make it header-safe
+        clientCertificateEncoded = urllib.parse.quote(clientCertificatePem)
+        session.headers.update({'SSL_CLIENT_CERT': clientCertificateEncoded})
+
+        # For HTTPS endpoints, also configure TLS client certificate and CA verification
+        if apiUrl.startswith("https://"):
+            try:
+                caBundle = config["ejbca"]["caBundle"]
+                # Convert string values to appropriate types for requests.Session.verify
+                # "default"/"true" -> True (use system CA bundle)
+                # "false"/"none" -> False (disable SSL verification)
+                # Any other value -> use as-is (path to CA bundle file)
+                caBundle = dict(default=True, true=True, false=False, none=False).get(caBundle, caBundle)
+            except KeyError:
+                caBundle = False
+            session.verify = caBundle
+
+            # For TLS client auth, we need both cert and key
+            # Try to get separate key file, otherwise assume cert file contains both
+            try:
+                clientKey = config["ejbca"]["clientKey"]
+                session.cert = (clientCertificate, clientKey)
+            except KeyError:
+                # Assume clientCertificate contains both cert and key
+                session.cert = clientCertificate
+
         transport = zeep.transports.Transport(session=session)
 
         self.client = zeep.Client(apiUrl, transport=transport)
@@ -105,7 +138,7 @@ class EjbcaBackend:
                     endEntityProfileName=self.endEntityProfileName,
                     certificateProfileName=self.certificateProfileName,
                     keyRecoverable=False,
-                    sendNotification=(email is not None),
+                    sendNotification=False,  # Email notifications not configured
                 ),
                 base64.b64encode(csr_der),
                 0,  # CertificateHelper.CERT_REQ_TYPE_PKCS10

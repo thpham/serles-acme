@@ -260,23 +260,22 @@ log_success "Role member added"
 log_info "Configuring access rules..."
 
 # Core access rules for ACME operations
+# Note: Rules must have trailing slashes for EJBCA CLI
 ACCESS_RULES=(
-	"/administrator"
-	"/ca_functionality/create_certificate"
-	"/ca_functionality/basic_functions"
-	"/ra_functionality/create_end_entity"
-	"/ra_functionality/edit_end_entity"
-	"/ra_functionality/delete_end_entity"
-	"/ca/$CA_NAME"
-	"/endentityprofilesrules/EMPTY/create_end_entity"
-	"/endentityprofilesrules/EMPTY/edit_end_entity"
+	"/administrator/"
+	"/ca_functionality/create_certificate/"
+	"/ca_functionality/basic_functions/"
+	"/ra_functionality/create_end_entity/"
+	"/ra_functionality/edit_end_entity/"
+	"/ra_functionality/delete_end_entity/"
+	"/ca/$CA_NAME/"
+	"/endentityprofilesrules/EMPTY/create_end_entity/"
+	"/endentityprofilesrules/EMPTY/edit_end_entity/"
 )
 
 for rule in "${ACCESS_RULES[@]}"; do
-	ejbca_cmd roles addaccessrule \
-		--role "$API_CLIENT_ROLE" \
-		--rule "$rule" \
-		--accept true || true
+	# Use 'changerule' command (not 'addaccessrule' which doesn't exist in EJBCA CE)
+	$EJBCA_CLI roles changerule "$API_CLIENT_ROLE" "$rule" "ACCEPT" 2>&1 | grep -v "^$" || true
 	log_info "  Added: $rule"
 done
 

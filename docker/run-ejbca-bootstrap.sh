@@ -51,20 +51,32 @@ docker cp serles-ejbca:/mnt/persistent/client01.pwd ./docker/certs/client01.pwd
 # Read password
 P12_PASSWORD=$(cat ./docker/certs/client01.pwd)
 
-# Convert P12 to PEM format (private key + certificate)
+# Convert P12 to PEM format - extract private key
 openssl pkcs12 -in ./docker/certs/client01.p12 \
 	-passin "pass:$P12_PASSWORD" \
-	-out ./docker/certs/client01-privpub.pem \
-	-nodes
+	-nocerts -nodes 2>/dev/null | \
+	sed -n '/-----BEGIN PRIVATE KEY-----/,/-----END PRIVATE KEY-----/p' \
+	> ./docker/certs/client01-key.pem
+
+# Convert P12 to PEM format - extract certificate
+openssl pkcs12 -in ./docker/certs/client01.p12 \
+	-passin "pass:$P12_PASSWORD" \
+	-clcerts -nokeys 2>/dev/null | \
+	sed -n '/-----BEGIN CERTIFICATE-----/,/-----END CERTIFICATE-----/p' \
+	> ./docker/certs/client01-cert.pem
+
+# Keep certificate separate (sent as HTTP header to port 8082)
+# Combined file not needed for PROXY_HTTP_BIND approach
 
 # Set proper permissions
-chmod 600 ./docker/certs/client01-privpub.pem
+chmod 600 ./docker/certs/client01-key.pem
+chmod 600 ./docker/certs/client01-cert.pem
 chmod 600 ./docker/certs/client01.pwd
 
 # Clean up temporary P12 file
 rm -f ./docker/certs/client01.p12
 
-echo "✓ Certificate converted successfully: ./docker/certs/client01-privpub.pem"
+echo "✓ Certificate converted successfully: ./docker/certs/client01-cert.pem"
 echo ""
 echo "Step 3: Restarting Serles container..."
 echo ""

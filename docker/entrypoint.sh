@@ -112,7 +112,9 @@ try:
         db.create_all()
         print("Database schema initialized successfully")
 except Exception as e:
+    import traceback
     print(f"ERROR: Database initialization failed: {e}", file=sys.stderr)
+    traceback.print_exc(file=sys.stderr)
     sys.exit(1)
 EOF
 
