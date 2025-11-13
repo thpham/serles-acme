@@ -68,7 +68,8 @@ services:
       dockerfile: Dockerfile
       args:
         - BUILDKIT_INLINE_CACHE=1
-    image: ghcr.io/thpham/serles-acme:local
+    #image: ghcr.io/thpham/serles-acme:local
+    image: ghcr.io/thpham/serles-acme:latest
     container_name: serles-acme
     restart: unless-stopped
     ports:
