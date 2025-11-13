@@ -1,0 +1,75 @@
+#
+# Serles ACME Demo - Caddy Server
+# Single-container demo with automatic TLS via Serles ACME
+#
+# Caddy automatically obtains and renews certificates from Serles ACME server
+#
+# Quick Start:
+#   docker-compose -f docker-compose.demo.yml up -d
+#   open https://localhost:8043 (or https://demo.serles.local:8043)
+#
+
+services:
+  # ==========================================================================
+  # Caddy Web Server with Automatic HTTPS via Serles ACME
+  # ==========================================================================
+  # Uses custom entrypoint to run ncat proxy alongside Caddy
+  # Proxy forwards localhost:4000 -> serles-acme:8080
+  # This bypasses Caddy's HTTPS requirement for ACME servers
+  # Reference: https://github.com/caddyserver/caddy/issues/1592
+  caddy:
+    image: caddy:2-alpine
+    container_name: demo-caddy
+    restart: unless-stopped
+    entrypoint: /docker-entrypoint.sh
+    ports:
+      - "8000:80" # HTTP (ACME challenge + redirect)
+      - "8043:443" # HTTPS (auto TLS)
+    environment:
+      # Domain for the demo site
+      DOMAIN: ${DEMO_DOMAIN:-demo.serles.local}
+
+      # Serles ACME via localhost proxy (bypasses Caddy HTTP restriction)
+      ACME_SERVER: ${ACME_SERVER:-http://127.0.0.1:4000/directory}
+    volumes:
+      # Custom entrypoint with ACME proxy workaround
+      - ./demo/caddy/entrypoint.sh:/docker-entrypoint.sh:ro
+
+      # Caddy configuration
+      - ./demo/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+
+      # Demo website
+      - ./demo/html:/srv:ro
+
+      # Caddy data (certificates, etc.)
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      serles-network:
+        # Network alias allows Serles to validate ACME challenge
+        aliases:
+          - demo.serles.local
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--quiet",
+          "--tries=1",
+          "--spider",
+          "http://localhost/health",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  serles-network:
+    external: true
+    name: serles-network
+
+volumes:
+  caddy_data:
+    name: serles-demo-caddy-data
+  caddy_config:
+    name: serles-demo-caddy-config

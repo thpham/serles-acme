@@ -23,25 +23,33 @@ verifyPTR = ${VERIFY_PTR:-false}
 allowWildcards = ${ALLOW_WILDCARDS:-false}
 
 # Subject Name Template for CSR
-# Variables: {SAN[0]}, {SAN[1]}, ..., {MAIL}
-subjectNameTemplate = ${SUBJECT_NAME_TEMPLATE:-CN={SAN[0]}}
+# Variables: {SAN}, {SAN0}, {SAN1}, ..., {MAIL}
+# Note: Use {SAN0} not {SAN[0]} - Python format() interprets [0] as string indexing
+# Note: Braces in default value are escaped for shell substitution
+subjectNameTemplate = ${SUBJECT_NAME_TEMPLATE:-CN=\{SAN0\}}
 
 # Force DN from template (ignore DN from CSR)
 forceTemplateDN = ${FORCE_TEMPLATE_DN:-true}
 
 # EJBCA Backend Configuration
 [ejbca]
-# EJBCA SOAP API endpoint (must be HTTPS)
-# For Docker Compose: https://ejbca:8443/ejbca/ejbcaws/ejbcaws?wsdl
-apiUrl = ${EJBCA_API_URL:-https://localhost:9443/ejbca/ejbcaws/ejbcaws?wsdl}
+# EJBCA SOAP API endpoint
+# For HTTP with PROXY_HTTP_BIND: http://ejbca:8082/ejbca/ejbcaws/ejbcaws?wsdl
+# For HTTPS with TLS client auth: https://ejbca:8443/ejbca/ejbcaws/ejbcaws?wsdl
+apiUrl = ${EJBCA_API_URL:-https://ejbca:8443/ejbca/ejbcaws/ejbcaws?wsdl}
 
-# CA bundle for verifying EJBCA certificate
-# Options: 'default' (certifi), 'none' (disable), or path to bundle
-caBundle = ${EJBCA_CA_BUNDLE:-none}
+# Client certificate (PEM format)
+# - For HTTPS: Used for TLS client authentication (requires clientKey)
+# - For HTTP: Sent via SSL_CLIENT_CERT header (URL-encoded)
+clientCertificate = ${EJBCA_CLIENT_CERT:-/etc/serles/certs/client01-cert.pem}
 
-# Client certificate for mutual TLS authentication
-# Must be PEM format with both private key and certificate
-clientCertificate = ${EJBCA_CLIENT_CERT:-/etc/serles/client01-privpub.pem}
+# Client private key (PEM format) - Required for HTTPS with TLS client auth
+# For HTTP with PROXY_HTTP_BIND, this is optional
+clientKey = ${EJBCA_CLIENT_KEY:-}
+
+# CA bundle for verifying EJBCA's TLS certificate
+# Options: "default" (use system CA), "false" (disable verification), or path to CA bundle
+caBundle = ${EJBCA_CA_BUNDLE:-false}
 
 # EJBCA CA and Profile names
 caName = ${EJBCA_CA_NAME:-ACMECA}
@@ -50,8 +58,9 @@ certificateProfileName = ${EJBCA_CERT_PROFILE:-ACMEServerProfile}
 
 # End Entity username and password schemes
 # Variables: {random} (32 chars hex), {CN}, {OU}, {O}, {L}, {ST}, {C}
-entityUsernameScheme = ${EJBCA_ENTITY_USERNAME:-{CN}}
-entityPasswordScheme = ${EJBCA_ENTITY_PASSWORD:-{random}}
+# Note: Braces in default values are escaped for shell substitution
+entityUsernameScheme = ${EJBCA_ENTITY_USERNAME:-\{CN\}}
+entityPasswordScheme = ${EJBCA_ENTITY_PASSWORD:-\{random\}}
 
 # OpenSSL Backend Configuration (for testing only)
 [openssl]

@@ -38,9 +38,11 @@ services:
     restart: unless-stopped
     environment:
       TLS_SETUP_ENABLED: "simple"
+      # Enable client certificate authentication for SOAP web services
+      # 1. "true" - Would enable full TLS setup (more complex configuration)
+      # 2. "simple" - Enables HTTPS on port 8443 for the Web UI only
     ports:
-      - "9443:8443" # HTTPS Web UI and SOAP API
-      - "9980:8080" # HTTP (redirect to HTTPS)
+      - "9443:8443"
     volumes:
       - ejbca_data:/mnt/persistent
       - ./docker/ejbca-bootstrap.sh:/opt/ejbca-bootstrap.sh:ro
@@ -66,6 +68,7 @@ services:
       dockerfile: Dockerfile
       args:
         - BUILDKIT_INLINE_CACHE=1
+    #image: ghcr.io/thpham/serles-acme:local
     image: ghcr.io/thpham/serles-acme:latest
     container_name: serles-acme
     restart: unless-stopped
@@ -78,17 +81,21 @@ services:
 
       # EJBCA backend configuration
       BACKEND: "serles.backends.ejbca:EjbcaBackend"
+      # HTTPS endpoint with TLS client authentication
       EJBCA_API_URL: "https://ejbca:8443/ejbca/ejbcaws/ejbcaws?wsdl"
-      EJBCA_CA_BUNDLE: "none" # Disable cert verification for self-signed EJBCA
-      EJBCA_CLIENT_CERT: "/etc/serles/certs/client01-privpub.pem"
+      EJBCA_CLIENT_CERT: "/etc/serles/certs/client01-cert.pem" # Client certificate for TLS auth
+      EJBCA_CLIENT_KEY: "/etc/serles/certs/client01-key.pem" # Client private key for TLS auth
+      EJBCA_CA_BUNDLE: "false" # Disable CA verification for self-signed cert
       EJBCA_CA_NAME: "ACMECA"
-      EJBCA_END_ENTITY_PROFILE: "ACMEEndEntityProfile"
-      EJBCA_CERT_PROFILE: "ACMEServerProfile"
+      # TODO: For production, create custom ACMEEndEntityProfile and ACMEServerProfile via EJBCA Web UI
+      # and update bootstrap script to grant permissions for these profiles
+      EJBCA_END_ENTITY_PROFILE: "EMPTY"
+      EJBCA_CERT_PROFILE: "ENDUSER"
       EJBCA_ENTITY_USERNAME: "{CN}"
       EJBCA_ENTITY_PASSWORD: "{random}"
 
       # Serles configuration
-      SUBJECT_NAME_TEMPLATE: "CN={SAN[0]}"
+      SUBJECT_NAME_TEMPLATE: "CN={SAN0}"
       FORCE_TEMPLATE_DN: "true"
       ALLOW_WILDCARDS: "false"
       VERIFY_PTR: "false"
@@ -110,7 +117,7 @@ services:
       # - Client cert for EJBCA SOAP API (generated via bootstrap)
       # - TLS server cert for HTTPS (generated via generate-tls-cert.sh)
       - ./docker/certs:/etc/serles/certs:ro
-      - ./docker/certs:/etc/serles/tls:ro  # Same dir, different mount point for TLS certs
+      - ./docker/certs:/etc/serles/tls:ro # Same dir, different mount point for TLS certs
       # Persistent data
       - serles_data:/var/lib/serles
       # Optional: Override config file

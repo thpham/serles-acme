@@ -93,6 +93,20 @@ curl http://localhost:8080/
 curl http://localhost:8080/directory
 ```
 
+### 4. Try the Demo (Optional)
+
+See Serles in action with automatic HTTPS via Caddy:
+
+```bash
+# One command - Caddy automatically gets certificate!
+docker-compose -f docker-compose.demo.yml up -d
+
+# Access demo site
+open https://localhost:8043
+```
+
+For details, see [README.demo.md](README.demo.md).
+
 ---
 
 ## Architecture Overview
