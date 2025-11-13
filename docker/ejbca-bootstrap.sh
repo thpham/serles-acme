@@ -264,7 +264,6 @@ log_info "Configuring access rules..."
 ACCESS_RULES=(
 	"/administrator/"
 	"/ca_functionality/create_certificate/"
-	"/ca_functionality/basic_functions/"
 	"/ra_functionality/create_end_entity/"
 	"/ra_functionality/edit_end_entity/"
 	"/ra_functionality/delete_end_entity/"
