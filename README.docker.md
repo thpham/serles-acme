@@ -51,20 +51,26 @@ EJBCA CE only provides AMD64 images, but Docker Desktop will automatically use R
 docker-compose logs -f ejbca
 # Press Ctrl+C when you see "INFO: Server startup completed"
 
-# Run automated bootstrap script
+# Run fully automated bootstrap script
 ./docker/run-ejbca-bootstrap.sh
 
-# This script will:
+# This script will automatically:
 #   1. Create ACME Certificate Authority (ACMECA)
-#   2. Generate client certificate for Serles SOAP API access
+#   2. Generate client certificate for Serles SOAP API access (P12 format)
 #   3. Configure administrator role and permissions
 #   4. Export certificates to /mnt/persistent inside EJBCA container
+#   5. Convert P12 certificate to PEM format using host's openssl
+#   6. Copy certificates to ./docker/certs/ directory
+#   7. Set proper file permissions (600)
+#   8. Restart Serles container to pick up the certificate
+#   9. Display verification logs
 
-# Copy client certificate to Serles
-docker cp serles-ejbca:/mnt/persistent/client01-privpub.pem ./docker/certs/
+# IMPORTANT: Restart EJBCA to apply configuration changes
+docker-compose restart ejbca
 
-# Restart Serles to pick up the certificate
-docker-compose restart serles
+# Wait for EJBCA to be healthy again (~2 minutes)
+docker-compose logs -f ejbca
+# Press Ctrl+C when you see "INFO: Server startup completed"
 ```
 
 **Alternative: Manual Configuration**
