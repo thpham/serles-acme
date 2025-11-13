@@ -74,6 +74,9 @@ docker-compose up -d
 # Restart EJBCA
 docker-compose restart ejbca
 
+# Restart Serles
+docker-compose restart serles
+
 # Verify Serles
 curl http://localhost:8080/directory
 ```
@@ -95,9 +98,10 @@ echo "127.0.0.1 demo.serles.local" | sudo tee -a /etc/hosts
 docker-compose -f docker-compose.demo.yml up -d
 
 # Access demo site
-open https://localhost:8443
-# or
-open https://demo.serles.local:8443
+open https://demo.serles.local:8043
+
+# EJBCA End Entities (issued certificate)
+open https://localhost:9443/ejbca/adminweb/ra/searchendentities.xhtml
 ```
 
 That's it! Caddy automatically:
@@ -300,7 +304,7 @@ This is expected for local development with EJBCA's self-signed CA.
 **Solution 1 - Skip verification** (dev only):
 
 ```bash
-curl -k https://localhost:8443
+curl -k https://localhost:8043
 ```
 
 **Solution 2 - Trust EJBCA CA** (recommended):
