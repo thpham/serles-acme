@@ -17,6 +17,12 @@ on:
       - master
     tags:
       - "v*"
+    paths-ignore:
+      - "**.md"
+      - "**.rst"
+      - "docs/**"
+      - "LICENSE"
+      - ".gitignore"
   workflow_dispatch:
     inputs:
       tag_suffix:
